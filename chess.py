@@ -1,5 +1,4 @@
-from copy import deepcopy
-import time
+import copy, time, itertools
 
 class FigureColor:
     blackFigure = '\033[95m'
@@ -33,10 +32,6 @@ class Figure:
     def oppositeColor(self):
         return Color.oppositeColor(self.color)
 
-    def possibleMoves(self, board, y, x, checkAttack):
-        if False:
-            yield board
-
     def doSequenceMoves(self, board, y, x, yDelta, xDelta):
          newY, newX = y + yDelta, x + xDelta
          while ChessBoard.inRange(newY, newX):
@@ -62,7 +57,7 @@ class Pawn(Figure):
     baseCost = 1
     name = "P"
 
-    def possibleMoves(self, board, y, x, checkAttack):
+    def allMoves(self, board, y, x, checkAttack):
         color = self.color
         yDirection = 1 if color == Color.white else -1
         initPos = 1 if color == Color.white else 6
@@ -87,7 +82,7 @@ class Rock(Figure):
     baseCost = 5
     name =  "R"
 
-    def possibleMoves(self, board, y, x, checkAttack):
+    def allMoves(self, board, y, x, checkAttack):
         for direction in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
             yield from self.doSequenceMoves(board, y, x, *direction)
 
@@ -103,10 +98,9 @@ class Knight(Figure):
         [-0.5, -0.1,  -0.3,  -0.3,  -0.3, -0.3, -0.1,  -0.5]]
     baseCost = 3
     name = "N"
-    deltas = [(2, -1), (2, 1), (-2, -1), (-2, 1), (1, -2), (1, 2), (-1, -2), (-1, 2)]
 
-    def possibleMoves(self, board, y, x, checkAttack):
-        for dy, dx in Knight.deltas:
+    def allMoves(self, board, y, x, checkAttack):
+        for dy, dx in [(2, -1), (2, 1), (-2, -1), (-2, 1), (1, -2), (1, 2), (-1, -2), (-1, 2)]:
             y1, x1 = y + dy, x + dx
             if ChessBoard.inRange(y1, x1) and board.cells[y1][x1] != self.color:
                 yield from board.move(y, x, y1, x1)
@@ -124,7 +118,7 @@ class Bishop(Figure):
     baseCost = 3.1
     name = "B"
 
-    def possibleMoves(self, board, y, x, checkAttack):
+    def allMoves(self, board, y, x, checkAttack):
         for direction in [(1, 1), (1, -1), (-1, -1), (-1, 1)]:
             yield from self.doSequenceMoves(board, y, x, *direction)
 
@@ -141,22 +135,18 @@ class Queen(Figure):
     baseCost = 9
     name = "Q"
 
-    def possibleMoves(self, board, y, x, checkAttack):
-        for dx in range(-1, 2):
-            for dy in range(-1, 2):
-                yield from self.doSequenceMoves(board, y, x, dy, dx)
+    def allMoves(self, board, y, x, checkAttack):
+        for dy, dx in itertools.product(range(-1,2), range(-1,2)):
+            yield from self.doSequenceMoves(board, y, x, dy, dx)
 
 class King(Figure):
     weights = [
-        [-0.3, -0.4, -0.4, -0.5, -0.5, -4.0, -4.0, -3.0],
-        [-0.3, -0.4, -0.4, -0.5, -0.5, -4.0, -4.0, -3.0],
-        [-0.3, -0.4, -0.4, -0.5, -0.5, -4.0, -4.0, -3.0],
-        [-0.3, -0.4, -0.4, -0.5, -0.5, -4.0, -4.0, -3.0],
-        [-0.2, -0.3, -0.3, -0.4, -0.4, -3.0, -3.0, -2.0],
-        [-0.1, -0.2, -0.2, -0.2, -0.2, -2.0, -2.0, -1.0],
+        *([[-0.3, -0.4, -0.4, -0.5, -0.5, -0.4, -0.4, -0.3]] * 4),
+        [-0.2, -0.3, -0.3, -0.4, -0.4, -0.3, -0.3, -0.2],
+        [-0.1, -0.2, -0.2, -0.2, -0.2, -0.2, -0.2, -0.1],
         [ 0.2,  0.2,  0.0,  0.0,  0.0,  0.0,  0.2,  0.2],
         [ 0.2,  0.3,  0.1,  0.0,  0.0,  0.1,  0.3,  0.2]]
-    baseCost = 1000
+    baseCost = 999
     name = "K"
 
     def canCastleTo(self, y, x, rockX):
@@ -168,17 +158,15 @@ class King(Figure):
         return all(board.isEmptyAt(y, x2) for x2 in range(x + sign, rockX, sign))\
             and all(not board.isUnderAttack(y, x2, color) for x2 in range(x, x + 3 * sign, sign))
 
-    def possibleMoves(self, board, y, x, checkAttack):
+    def allMoves(self, board, y, x, checkAttack):
         for x1 in [0, 7]:
             if checkAttack and self.canCastleTo(y, x, x1):
                 yield from board.castleMove(y, x, x1)
-        for dx in range(-1, 2):
-            for dy in range(-1, 2):
-                if ChessBoard.inRange(y + dy, x + dx):
-                    if board.cells[y + dy][x + dx].color == self.color:
-                        continue # own figure
-                    if not checkAttack or not board.isUnderAttack(y + dy, x + dx, self.oppositeColor()):
-                        yield from board.move(y, x, y + dy, x + dx)
+        for dy, dx in itertools.product(range(-1,2), range(-1,2)):
+            y1, x1 = y + dy, x + dx
+            if ChessBoard.inRange(y1, x1) and board.cells[y1][x1].color != self.color:
+                if not checkAttack or not board.isUnderAttack(y1, x1, self.oppositeColor()):
+                    yield from board.move(y, x, y1, x1)
 
 class ChessBoard:
     def __init__(self):
@@ -207,7 +195,7 @@ class ChessBoard:
     def isValidMove(self, moveFrom, moveTo, color):
         figure = self.cells[moveFrom[0]][moveFrom[1]]
         if figure.color == color:
-            for newBoard, lastMove in figure.possibleMoves(self, *moveFrom, True):
+            for newBoard, lastMove in figure.allMoves(self, *moveFrom, True):
                 if lastMove[1] == moveTo and not self.isKingUnderAttack(color):
                     return True
         return False
@@ -271,25 +259,25 @@ class ChessBoard:
         print("A B C D E F G H")
 
     def isUnderAttack(self, y, x, color):
-        return any(move[1] == [y,x] for _, move in self.possibleMoves(color, False))
+        return any(move[1] == [y,x] for _, move in self.allMoves(color, False))
 
-    def possibleMoves(self, color, checkAttack = True):
+    def allMoves(self, color, checkAttack = True):
         for y, row in enumerate(self.cells):
             for x, figure in enumerate(row):
                 if figure.color == color:
-                    yield from figure.possibleMoves(self, y, x, checkAttack)
+                    yield from figure.allMoves(self, y, x, checkAttack)
 
     def doMinimax(self, color, maxDepth, depth = 1, alphaBeta = None):
         bestScore = None
         newBoard = None
         compare = lambda c, s, l: c == Color.white and s > l or c == Color.black and s < l
-        for board, lastMove in self.possibleMoves(color):
+        for board, lastMove in self.allMoves(color):
             score = board.score if depth == maxDepth \
                 else self.doMinimax(Color.oppositeColor(color), maxDepth, depth + 1, bestScore)
             if bestScore == None or compare(color, score, bestScore):
                 bestScore = score
                 if depth == 1:
-                    newBoard = deepcopy(board)
+                    newBoard = copy.deepcopy(board)
                     newBoard.lastMove = lastMove
             if alphaBeta != None and compare(color, score, alphaBeta):
                 break
@@ -297,12 +285,11 @@ class ChessBoard:
 
     def isCheckmate(self, color):
         y, x, king = self.findKing(color)
-        isUnderAttack = self.isUnderAttack(y, x, Color.oppositeColor(color))
-        return isUnderAttack and len(list(king.possibleMoves(self, y, x))) == 0
+        return self.isKingUnderAttack(color) and not list(king.allMoves(self, y, x, True))
 
     def isKingUnderAttack(self, color):
         y, x, king = self.findKing(color)
-        return self.isUnderAttack(y, x, Color.oppositeColor(color))
+        return self.isUnderAttack(y, x, king.oppositeColor())
 
     def findKing(self, color):
         for y, row in enumerate(self.cells):
@@ -329,23 +316,21 @@ def inputUserMove(userColor):
         if len(move) != 2 or not board.isValidMove(*move, userColor):
             print("Invalid move.")
             continue
-        promotion = None
         figure = board.cells[move[0][0]][move[0][1]]
         toY = move[1][0]
         if isinstance(figure, Pawn) and (toY == 7 or toY == 0):
-            prompt = input("Promote to (Q/R/B/N)? ")
-            for f in [Queen(figure.color), Rock(figure.color), Bishop(figure.color), Knight(figure.color)]:
+            prompt = input("Promote to (Q/R/B/N)? ").upper()
+            for f in [Queen, Rock, Bishop, Knight]:
                 if f.name == prompt:
-                    promotion = f
-        return move, promotion
+                    return move, f(figure.color)
+        return move, None
 
 board = ChessBoard()
 board.print()
 userColor = input("Would you like to play white? (y/n)")
 userColor = Color.white if userColor.lower() == "y" else Color.black
-#main game loop
 currentColor = Color.white
-while True:
+while True: #main game loop
     if currentColor != userColor:
         start_time = time.time()
         board = board.doMinimax(currentColor, 4)
@@ -359,8 +344,7 @@ while True:
         board.moveFigure(*move[0], *move[1], promotion)
         y, x, king = board.findKing(currentColor)
         dx = move[1][1] - move[0][1]
-        if move[1] == [y, x] and abs(dx) == 2:
-            # Castle move by user, move rock as well.
+        if move[1] == [y, x] and abs(dx) == 2: # Castle move by user, move rock as well.
             rockX = 7 if dx > 0 else 0
             newX = x - (1 if dx > 0 else -1)
             board.moveFigure(y, rockX, y, newX)
