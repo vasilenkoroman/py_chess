@@ -18,6 +18,7 @@ class Color:
 class Figure:
     weights = [[0] * 8] * 8
     baseCost = 0
+    name = "*"
 
     def __init__(self, color = Color.none):
         self.color = color
@@ -25,9 +26,6 @@ class Figure:
 
     def getWeight(self, y, x):
         return self.weights[7-y][x] if self.color == Color.white else -self.weights[y][7 - x]
-
-    def name(self):
-        return "*"
 
     def cost(self):
         return self.baseCost if self.color == Color.white else -self.baseCost
@@ -62,9 +60,7 @@ class Pawn(Figure):
         [0.05, 0.1,  0.1, -0.02,-0.02, 0.1,  0.1,  0.05],
         [0.0] * 8]
     baseCost = 1
-
-    def name(self):
-        return "P"
+    name = "P"
 
     def possibleMoves(self, board, y, x, checkAttack):
         color = self.color
@@ -89,9 +85,7 @@ class Rock(Figure):
         *([[-0.05, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0, -0.05]] * 5),
         [ 0.0,  0.0,  0.0,  0.05, 0.05, 0.0,  0.0,  0.0]]
     baseCost = 5
-
-    def name(self):
-        return "R"
+    name =  "R"
 
     def possibleMoves(self, board, y, x, checkAttack):
         for direction in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
@@ -108,10 +102,8 @@ class Knight(Figure):
         [-0.4, -0.2,   0.0,   0.05,  0.05, 0.0, -0.2,  -0.4],
         [-0.5, -0.1,  -0.3,  -0.3,  -0.3, -0.3, -0.1,  -0.5]]
     baseCost = 3
+    name = "N"
     deltas = [(2, -1), (2, 1), (-2, -1), (-2, 1), (1, -2), (1, 2), (-1, -2), (-1, 2)]
-
-    def name(self):
-        return "N"
 
     def possibleMoves(self, board, y, x, checkAttack):
         for dy, dx in Knight.deltas:
@@ -130,9 +122,7 @@ class Bishop(Figure):
         [-0.1,  0.05,  0.0,   0.0,   0.0,  0.0,  0.05, -0.1],
         [-0.2, -0.1,  -0.1,  -0.1,  -0.1, -0.1, -0.1,  -0.2]]
     baseCost = 3.1
-
-    def name(self):
-        return "B"
+    name = "B"
 
     def possibleMoves(self, board, y, x, checkAttack):
         for direction in [(1, 1), (1, -1), (-1, -1), (-1, 1)]:
@@ -149,9 +139,7 @@ class Queen(Figure):
         [-0.1,  0.0,   0.05,  0.0,    0.0,   0.0,   0.0,  -0.1],
         [-0.2, -0.1,  -0.1,  -0.05,  -0.05, -0.1,  -0.1,  -0.2]]
     baseCost = 9
-
-    def name(self):
-        return "Q"
+    name = "Q"
 
     def possibleMoves(self, board, y, x, checkAttack):
         for dx in range(-1, 2):
@@ -169,9 +157,7 @@ class King(Figure):
         [ 0.2,  0.2,  0.0,  0.0,  0.0,  0.0,  0.2,  0.2],
         [ 0.2,  0.3,  0.1,  0.0,  0.0,  0.1,  0.3,  0.2]]
     baseCost = 1000
-
-    def name(self):
-        return "K"
+    name = "K"
 
     def canCastleTo(self, y, x, rockX):
         rock = board.cells[y][rockX]
@@ -279,7 +265,7 @@ class ChessBoard:
                     color = FigureColor.whiteFigure
                 elif figure.color == Color.black:
                     color = FigureColor.blackFigure
-                print("" + color + figure.name() + " ", end="")
+                print("" + color + figure.name + " ", end="")
             print(FigureColor.white + " |", 8 - y, "   ", help[y])
         print("-" * 16)
         print("A B C D E F G H")
