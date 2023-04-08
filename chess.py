@@ -2,7 +2,7 @@ from itertools import product
 import copy, time
 
 sign = lambda x: 1 if x > 0 else -1
-inRange = lambda x, y: 0 <= y < 8 and 0 <= x < 8
+inRange = lambda xy: 0 <= xy[0] < 8 and 0 <= xy[1] < 8
 isLastLine = lambda y: y == 0 or y == 7
 hMirror = lambda lst: [sublist + sublist[::-1] for sublist in lst]
 
@@ -22,15 +22,15 @@ class Figure:
         return (self.weights[7-y][x] + self.baseCost if self.color == Color.white
             else -self.weights[y][7-x] - self.baseCost)
 
-    def doSequenceMoves(self, board, x, y, dx, dy):
-        x1, y1 = x + dx, y + dy
-        while inRange(x1, y1):
-            color = board.cells[x1,y1].color
+    def doSequenceMoves(self, board, xy, dx, dy):
+        xy1 = xy[0] + dx, xy[1] + dy
+        while inRange(xy1):
+            color = board.cells[xy1].color
             if color != self.color:
-                yield from board.move((x, y), (x1, y1))
+                yield from board.move(xy, xy1)
             if color != Color.none:
                 break
-            x1, y1 = x1 + dx, y1 + dy
+            xy1 = xy1[0] + dx, xy1[1] + dy
 
 class Pawn(Figure):
     weights = hMirror([
@@ -45,14 +45,14 @@ class Pawn(Figure):
     baseCost = 100
     name = "P"
 
-    def allMoves(self, board, x, y, opaque):
-        y1 = y + self.color
+    def allMoves(self, board, xy, opaque):
+        x, y, y1 = *xy, xy[1] + self.color
         for dx in (-1, 1, 0): #take moves first
-            if board.hasColorAt(x + dx, y1, Color.none if dx == 0 else -self.color):
-                if dx == 0 and not self.hasMoved and board.isEmptyAt(x, y1 + self.color):
-                    yield from board.move((x, y), (x, y1 + self.color))
+            if board.hasColorAt((x + dx, y1), -self.color if dx else Color.none):
+                if not dx and not self.hasMoved and board.isEmptyAt((x, y1 + self.color)):
+                    yield from board.move(xy, (x, y1 + self.color))
                 for f in [Queen, Rock, Bishop, Knight] if isLastLine(y1) else [None]:
-                    yield from board.move((x, y), (x + dx, y1), f)
+                    yield from board.move(xy, (x + dx, y1), f)
 
 class Rock(Figure):
     weights = hMirror([
@@ -63,9 +63,9 @@ class Rock(Figure):
     baseCost = 500
     name =  "R"
 
-    def allMoves(self, board, x, y, opaque):
-        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            yield from self.doSequenceMoves(board, x, y, dx, dy)
+    def allMoves(self, board, xy, opaque):
+        for delta in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            yield from self.doSequenceMoves(board, xy, *delta)
 
 class Knight(Figure):
     weights = hMirror([
@@ -80,11 +80,11 @@ class Knight(Figure):
     baseCost = 300
     name = "N"
 
-    def allMoves(self, board, x, y, opaque):
+    def allMoves(self, board, xy, opaque):
         for dx, dy in [(2, -1), (2, 1), (-2, -1), (-2, 1), (1, -2), (1, 2), (-1, -2), (-1, 2)]:
-            xy1 = x + dx, y + dy
-            if inRange(*xy1) and board.cells[xy1].color != self.color:
-                yield from board.move((x, y), xy1)
+            xy1 = xy[0] + dx, xy[1] + dy
+            if inRange(xy1) and board.cells[xy1].color != self.color:
+                yield from board.move(xy, xy1)
 
 class Bishop(Figure):
     weights = hMirror([
@@ -99,9 +99,9 @@ class Bishop(Figure):
     baseCost = 310
     name = "B"
 
-    def allMoves(self, board, x, y, opaque):
-        for dx, dy in product((-1, 1), repeat=2):
-            yield from self.doSequenceMoves(board, x, y, dx, dy)
+    def allMoves(self, board, xy, opaque):
+        for delta in product((-1, 1), repeat=2):
+            yield from self.doSequenceMoves(board, xy, *delta)
 
 class Queen(Figure):
     weights = hMirror([
@@ -116,9 +116,9 @@ class Queen(Figure):
     baseCost = 900
     name = "Q"
 
-    def allMoves(self, board, x, y, opaque):
-        for dx, dy in product(range(-1,2), repeat=2):
-            yield from self.doSequenceMoves(board, x, y, dx, dy)
+    def allMoves(self, board, xy, opaque):
+        for delta in product(range(-1,2), repeat=2):
+            yield from self.doSequenceMoves(board, xy, *delta)
 
 class King(Figure):
     weights = hMirror([
@@ -130,46 +130,42 @@ class King(Figure):
     baseCost = 99000
     name = "K"
 
-    def canCastleTo(self, x, y, rockX):
-        rock = board.cells[rockX,y]
-        s = sign(rockX - 1)
+    def canCastleTo(self, x, y, rockX, s):
+        rock = board.cells[rockX, y]
         return (not self.hasMoved and isinstance(rock, Rock) and not rock.hasMoved
-            and (all(board.isEmptyAt(x1, y) for x1 in range(x + s, rockX, s))
-            and all(not board.isUnderAttack(x + s * dx, y, -self.color) for dx in range(3))))
+            and (all(board.isEmptyAt((x1, y)) for x1 in range(x + s, rockX, s))
+            and all(not board.isUnderAttack((x + s * dx, y), -self.color) for dx in range(3))))
 
-    def allMoves(self, board, x, y, recursion):
-        for kingX, rockX in [(6,7), (2,0)]:
-            if not recursion and self.canCastleTo(x, y, rockX):
-                yield from board.move((x, y), (kingX, y), None, rockX)
-        for dx, dy in product(range(-1,2), repeat=2):
-            xy1 = x + dx, y + dy
-            if inRange(*xy1) and board.cells[xy1].color != self.color:
-                if recursion or not board.isUnderAttack(*xy1, -self.color):
-                    yield from board.move((x, y), xy1)
+    def allMoves(self, board, xy, recursion):
+        for rockX, s in [(7,1), (0,-1)]:
+            if not recursion and self.canCastleTo(*xy, rockX, s):
+                yield from board.move(xy, (xy[0] + 2*s, xy[1]), None, rockX)
+        for xy1 in product(range(xy[0]-1, xy[0]+2), range(xy[1]-1, xy[1]+2)):
+            if inRange(xy1) and board.cells[xy1].color != self.color:
+                if recursion or not board.isUnderAttack(xy1, -self.color):
+                    yield from board.move(xy, xy1)
 
 class ChessBoard:
     def __init__(self):
-        self.cells = {}
-        for xy in product(range(8), repeat=2):
-            self.cells[xy] = Figure()
+        self.cells = {xy: Figure() for xy in product(range(8), repeat=2)}
         for color, y in [(Color.white, 0), (Color.black, 7)]:
             for x in range(8):
-                self.cells[x, y + color] = Pawn(color)
+                self.cells[x, y+color] = Pawn(color)
             for x, f in enumerate((Rock, Knight, Bishop, Queen)):
-                self.cells[x,y] = f(color)
-                self.cells[7-x,y] = f(color)
-            self.cells[4,y] = King(color)
+                self.cells[x, y] = f(color)
+                self.cells[7-x, y] = f(color)
+            self.cells[4, y] = King(color)
         self.score = 0
 
-    def hasColorAt(self, x, y, color):
-        return inRange(x, y) and self.cells[x,y].color == color
+    def hasColorAt(self, xy, color):
+        return inRange(xy) and self.cells[xy].color == color
 
-    def isEmptyAt(self, x, y): return self.hasColorAt(x, y, Color.none)
+    def isEmptyAt(self, xy): return self.hasColorAt(xy, Color.none)
 
     def isValidMove(self, src, dst, color):
-        return (self.hasColorAt(*src, color) and
+        return (self.hasColorAt(src, color) and
             any(move[1] == dst and not board.isKingUnderAttack(color)
-            for _, move in self.cells[tuple(src)].allMoves(self, *src, False)))
+            for _, move in self.cells[src].allMoves(self, src, False)))
 
     def move(self, src, dst, newDst = None, rockX = None):
         try:
@@ -177,21 +173,19 @@ class ChessBoard:
             figureFrom, figureTo = self.moveFigure(src, dst, newDst)
             hasMoved, figureFrom.hasMoved = figureFrom.hasMoved, True
             if rockX:
-                rockDstX = {7:5, 0:3}[rockX]
-                self.moveFigure((rockX, src[1]), (rockDstX, dst[1]))
-            yield self, [src, dst]
+                rockDst = {7:5, 0:3}[rockX], dst[1]
+                self.moveFigure((rockX, src[1]), rockDst)
+            yield self, (src, dst)
         finally:
-            self.cells[src] = figureFrom
-            self.cells[dst] = figureTo
+            self.cells[src], self.cells[dst] = figureFrom, figureTo
             figureFrom.hasMoved = hasMoved
             if rockX:
-                self.moveFigure((rockDstX, src[1]), (rockX, dst[1]))
+                self.moveFigure(rockDst, (rockX, dst[1]))
             self.score = oldScore
 
     def moveFigure(self, src, dst, promotion = None):
-            figureTo = self.cells[dst]
-            figureFrom = self.cells[src]
-            self.score -= figureTo.cost(*dst) + figureFrom.cost(*src)
+            figureFrom, figureTo = self.cells[src], self.cells[dst]
+            self.score -= figureFrom.cost(*src) + figureTo.cost(*dst)
             self.cells[dst] = promotion(figureFrom.color) if promotion else figureFrom
             self.score += self.cells[dst].cost(*dst)
             self.cells[src] = Figure()
@@ -210,13 +204,13 @@ class ChessBoard:
         print("-" * 16)
         print("A B C D E F G H")
 
-    def isUnderAttack(self, x, y, color):
-        return any(move[1] == [x, y] for _, move in self.allMoves(color, True))
+    def isUnderAttack(self, xy, color):
+        return any(move[1] == xy for _, move in self.allMoves(color, True))
 
     def allMoves(self, color, recursion = False):
         for xy, cell in self.cells.items():
             if cell.color == color:
-                yield from cell.allMoves(self, *xy, recursion)
+                yield from cell.allMoves(self, xy, recursion)
 
     def doMinimax(self, color, maxDepth, depth = 1, alphaBeta = None):
         bestScore = None
@@ -239,13 +233,9 @@ class ChessBoard:
     def isStalemate(self, color): return self.isCheckmate(color, False)
 
     def isKingUnderAttack(self, color):
-        return self.isUnderAttack(*self.findKing(color)[:2], -color)
-
-    def findKing(self, color):
-        for x, y in product(range(8), repeat=2):
-            king = board.cells[x,y]
-            if king.color == color and isinstance(king, King):
-                return x, y, king
+        for xy, cell in self.cells.items():
+            if cell.color == color and isinstance(cell, King):
+                return self.isUnderAttack(xy, -color)
 
 def inputUserMove(color):
     while True:
@@ -257,7 +247,7 @@ def inputUserMove(color):
             print("Invalid move.")
         except:
             print("invalid move format. Move example: e2-e4")
-    figure = board.cells[tuple(move[0])]
+    figure = board.cells[move[0]]
     while isinstance(figure, Pawn) and isLastLine(move[1][1]):
         prompt = input("Promote to (Q/R/B/N)? ").upper()
         for f in [Queen, Rock, Bishop, Knight]:
