@@ -26,7 +26,7 @@ class Figure:
         while inRange(*xy1) and not color:
             color = board.cells[xy1].color
             if color != self.color:
-                yield from board.move((x,y), xy1)
+                yield from board.doMove((x,y), xy1)
             xy1 = xy1[0] + dx, xy1[1] + dy
 
 class Pawn(Figure):
@@ -48,12 +48,12 @@ class Pawn(Figure):
             xy0, xy1 = (x+dx, y), (x+dx, y1)
             if board.hasColor(xy1, -self.color if dx else Color.none):
                 if not dx and self.still and board.isEmpty((x, y2)):
-                    yield from board.move(xy0, (x, y2))
+                    yield from board.doMove(xy0, (x, y2))
                 for f in [Queen, Rock, Bishop, Knight] if isLastLine(y1) else [None]:
-                    yield from board.move((x,y), xy1, None, f)
+                    yield from board.doMove((x,y), xy1, None, f)
             if (board.hasColor(xy0, -self.color) and type(board.cells[xy0]) is Pawn
-                    and board.lastMove == [(x+dx,y2), xy0]):
-                yield from board.move((x,y), xy1, [xy0, xy1]) # En passant
+                    and board.move == [(x+dx,y2), xy0]):
+                yield from board.doMove((x,y), xy1, [xy0, xy1]) # En passant
 
 class Rock(Figure):
     weights = hMirror([
@@ -85,7 +85,7 @@ class Knight(Figure):
         for dx, dy in [(2, -1), (2, 1), (-2, -1), (-2, 1), (1, -2), (1, 2), (-1, -2), (-1, 2)]:
             xy1 = x + dx, y + dy
             if inRange(*xy1) and board.cells[xy1].color != self.color:
-                yield from board.move((x,y), xy1)
+                yield from board.doMove((x,y), xy1)
 
 class Bishop(Figure):
     weights = hMirror([
@@ -131,16 +131,16 @@ class King(Figure):
     baseCost = 99000
     name = "K"
 
-    def allMoves(self, board, x, y, recursion):
+    def allMoves(self, board, x, y, r):
         for x1, x2, s in [(7,5,1), (0,3,-1)]:
-            if (not recursion and self.still and type(board.cells[x1, y]) is Rock and board.cells[
-                    x1, y].still and all(board.isEmpty((i, y)) for i in range(x+s, x1, s)) and
-                    all(not board.isUnderAttack((x + s*dx, y), -self.color) for dx in range(3))):
-                yield from board.move((x,y), (x + 2*s, y), [(x1,y), (x2,y)])
+            if (self.still and type(board.cells[x1, y]) is Rock and board.cells[x1, y].still and
+                    all(board.isEmpty((i, y)) for i in range(x+s, x1, s)) and
+                    all(not board.isUnderAttack((x + s*i, y, r), -self.color) for i in range(3))):
+                yield from board.doMove((x,y), (x + 2*s, y), [(x1,y), (x2,y)])
         for xy1 in product(range(x-1, x+2), range(y-1, y+2)):
             if inRange(*xy1) and board.cells[xy1].color != self.color:
-                if recursion or not board.isUnderAttack(xy1, -self.color):
-                    yield from board.move((x,y), xy1)
+                if not board.isUnderAttack(xy1, -self.color, r):
+                    yield from board.doMove((x,y), xy1)
 
 class Board:
     def __init__(self):
@@ -155,14 +155,14 @@ class Board:
     def hasColor(self, xy, color):
         return inRange(*xy) and self.cells[xy].color == color
 
-    def isEmpty(self, xy): return self.hasColor(xy, Color.none)
+    def isEmpty(self, xy): return not self.cells[xy].color
 
-    def move(self, src, dst, move2 = None, newDst = None):
+    def doMove(self, src, dst, move2 = None, newDst = None):
         oldScore = self.score
         if move2: self.moveFigure(*move2)
         figureFrom, figureTo = self.moveFigure(src, dst, newDst)
         still, figureFrom.still = figureFrom.still, False
-        self.lastMove = [src, dst]
+        self.move = [src, dst]
         try:
             yield self
         finally:
@@ -172,12 +172,12 @@ class Board:
             self.score = oldScore
 
     def moveFigure(self, src, dst, promotion = None):
-            figureFrom, figureTo = self.cells[src], self.cells[dst]
-            self.score -= figureFrom.cost(*src) + figureTo.cost(*dst)
-            self.cells[dst] = f = promotion(figureFrom.color) if promotion else figureFrom
-            self.score += f.cost(*dst)
-            self.cells[src] = Figure()
-            return figureFrom, figureTo
+        figureFrom, figureTo = self.cells[src], self.cells[dst]
+        self.score -= figureFrom.cost(*src) + figureTo.cost(*dst)
+        self.cells[dst] = f = promotion(figureFrom.color) if promotion else figureFrom
+        self.score += f.cost(*dst)
+        self.cells[src] = Figure()
+        return figureFrom, figureTo
 
     def print(self):
         help = {0: "R - rock", 1: "N - knight", 2: "B - bishop", 3: "Q - queen",
@@ -187,14 +187,13 @@ class Board:
         for y,x in sorted(self.cells):
             figure = self.cells[x, 7-y]
             print(f"{textColors[figure.color]}{figure.name} ",
-                  end="" if x < 7 else f"{whiteText} |{8-y}   {help[y]}\n")
+                end="" if x < 7 else f"{whiteText} |{8-y}   {help[y]}\n")
         print("-" * 16)
         print("A B C D E F G H")
 
-    def allMoves(self, color, recursion = False):
-        for xy, cell in self.cells.items():
-            if cell.color == color:
-                yield from cell.allMoves(self, *xy, recursion)
+    def allMoves(self, color, r = None):
+        for g in (c.allMoves(self, *xy, r) for xy, c in self.cells.items() if c.color == color):
+            yield from g
 
     def doMinimax(self, color, maxDepth, depth = 0, alphaBeta = None):
         bestScore = None
@@ -209,8 +208,8 @@ class Board:
                 break
         return bestScore if depth else newBoard
 
-    def isUnderAttack(self, xy, color):
-        return any(board.lastMove[1] == xy for board in self.allMoves(color, True))
+    def isUnderAttack(self, xy, color, r = None):
+        return not r and any(board.move[1] == xy for board in self.allMoves(color, 1))
 
     def isCheck(self, color):
         for xy, cell in self.cells.items():
@@ -229,8 +228,8 @@ def userMove(color, board):
         move = [tuple(ord(a) - ord(b) for a, b in zip(m, "a1")) for m in moveStr]
         try:
             figure = board.cells[move[0]]
-            if (figure.color == color and any(move == b.lastMove and not board.isCheck(color)
-                for b in figure.allMoves(board, *move[0], False))):
+            if (figure.color == color and any(move == b.move and not board.isCheck(color)
+                for b in figure.allMoves(board, *move[0], None))):
                 break
             print("Invalid move.")
         except:
@@ -250,12 +249,12 @@ while not (board.isCheckmate(player) or board.isStalemate(player)):
     if player != userColor:
         t0 = time.time()
         board = board.doMinimax(player, 3)
-        move = '-'.join(chr(ord("a") + m[0]) + str(m[1] + 1) for m in board.lastMove)
+        move = '-'.join(chr(ord("a") + m[0]) + str(m[1] + 1) for m in board.move)
         print(f"Time: {round(time.time()-t0, 1)} secs. Move: {move}")
     else:
         src, dst, promotion = userMove(userColor, board)
         figure, to = board.moveFigure(src, dst, promotion)
-        board.lastMove = [src, dst]
+        board.move = [src, dst]
         figure.still = False
         dx = dst[0] - src[0]
         if type(figure) is Pawn and not to.color and dx:
