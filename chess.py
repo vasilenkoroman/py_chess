@@ -135,7 +135,7 @@ class King(Figure):
         for x1, x2, s in [(7,5,1), (0,3,-1)]:
             if (self.still and type(board.cells[x1, y]) is Rock and board.cells[x1, y].still and
                     all(board.isEmpty((i, y)) for i in range(x+s, x1, s)) and
-                    all(not board.isUnderAttack((x + s*i, y, r), -self.color) for i in range(3))):
+                    all(not board.isUnderAttack((x + s*i, y), -self.color, r) for i in range(3))):
                 yield from board.doMove((x,y), (x + 2*s, y), [(x1,y), (x2,y)])
         for xy1 in product(range(x-1, x+2), range(y-1, y+2)):
             if inRange(*xy1) and board.cells[xy1].color != self.color:
